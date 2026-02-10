@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="header">
+        <div class="top-left">
+            <div class="weather">
+                <div class="sun-pixel"></div>
+                <span>24°C</span>
+            </div>
+            <div class="aqi-box">
+                AQI: <span id="aqi-num">32</span>
+                <span class="info-container">
+                    <span class="info-icon">?</span>
+                    <span class="tooltip">Air Quality Index: indica il livello di inquinamento dell'aria locale.</span>
+                </span>
+                <div id="aqi-bar" class="aqi-bar"></div>
+            </div>
+        </div>
+
+        <div class="top-right">
+            <span class="info-container">
+                <span class="info-icon">?</span>
+                <span class="tooltip tooltip-right">Il punteggio è una media tra le tue abitudini e l'indice di inquinamento.</span>
+            </span>
+            <span id="score-num" class="score-value">28</span>
+            <div id="score-diamond" class="diamond"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        
+        <div class="section">
+            <h3>DIETA</h3>
+            <p class="description">Frequenza consumo proteine animali. L'impatto degli allevamenti è massivo.</p>
+            <input type="range" min="1" max="3" step="1" value="1" class="pixel-slider" id="diet">
+            <div class="labels">
+                <span>MAI</span>
+                <span class="center">OGNI TANTO</span>
+                <span>SPESSO</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>ABITAZIONE</h3>
+            <p class="description">Percentuale energia da fonti rinnovabili (certificata).</p>
+            <input type="range" min="0" max="100" value="50" class="pixel-slider" id="energy">
+            <div class="labels">
+                <span>0%</span>
+                <span>100%</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>KM SETTIMANALI</h3>
+            <p class="description">Distanza percorsa con mezzi a combustione fossile (auto/moto).</p>
+            <input type="range" min="0" max="500" value="100" class="pixel-slider" id="km">
+            <div class="counter-box">
+                <span id="km-display" class="count">100 KMS</span>
+                <span id="mi-display" class="count-sub">62 MIGLIA</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>VOLI ANNUI</h3>
+            <p class="description">Numero di voli effettuati. I voli sono i pesi maggiori dell'impronta carbonica.</p>
+            <input type="range" min="0" max="10" value="1" class="pixel-slider" id="flights">
+            <div class="labels">
+                <span>ZERO</span>
+                <span>DIECI+</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>CONSUMO</h3>
+            <p class="description">Acquisto di nuovi prodotti rispetto a riparato/usato.</p>
+            <input type="range" min="0" max="10" value="2" class="pixel-slider" id="consumption">
+            <div class="labels">
+                <span>MINIMO</span>
+                <span>MASSIMO</span>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        <p>BASSO SCORE = PIÙ ECO</p>
+    </div>
+
+    <script src="popup.js"></script>
+    <script>
+  const RENDER_URL = 'wss://bnd-server.onrender.com'; 
+let ws = null;
+
+function connect() {
+    ws = new WebSocket(RENDER_URL);
+    ws.onopen = () => console.log('✅ Connesso a Render');
+    ws.onclose = () => setTimeout(connect, 3000);
+
+    // RICEZIONE: Da TouchDesigner -> HTML
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            const el = document.getElementById(data.id);
+            if (el) {
+                el.value = data.value;
+                // Aggiorna etichette speciali se necessario
+                if (data.id === 'km') updateKmLabels(data.value);
+                if (data.id === 'score-num') el.innerText = data.value;
+            }
+        } catch (e) { console.error("Errore JSON", e); }
+    };
+}
+
+// INVIO: Da HTML -> TouchDesigner
+document.querySelectorAll('.pixel-slider').forEach(slider => {
+    slider.addEventListener('input', (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const msg = { id: e.target.id, value: parseFloat(e.target.value) };
+            ws.send(JSON.stringify(msg));
+        }
+        if (e.target.id === 'km') updateKmLabels(e.target.value);
+    });
+});
+
+function updateKmLabels(val) {
+    document.getElementById('km-display').innerText = val + " KMS";
+    document.getElementById('mi-display').innerText = Math.round(val * 0.621371) + " MIGLIA";
+}
+
+connect();
+</script>
+</body>
+</html>
