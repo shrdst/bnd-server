@@ -40,7 +40,7 @@
         <div class="section">
             <h3>DIETA</h3>
             <p class="description">Frequenza consumo proteine animali. L'impatto degli allevamenti è massivo.</p>
-            <input type="range" min="1" max="3" step="1" value="1" class="pixel-slider" id="diet">
+            <input type="range" min="-1" max="1" step="1" value="-1" class="pixel-slider" id="diet">
             <div class="labels">
                 <span>MAI</span>
                 <span class="center">OGNI TANTO</span>
@@ -101,9 +101,9 @@
         // --- 1. FUNZIONI DI CALCOLO E UI ---
         
         function updateScore() {
-            // Recupero valori in tempo reale
             const vals = {
-                diet: parseInt(document.getElementById('diet').value) || 1,
+                // Default a -1 per allinearsi al nuovo range
+                diet: parseInt(document.getElementById('diet').value) ?? -1,
                 energy: parseInt(document.getElementById('energy').value) || 0,
                 km: parseInt(document.getElementById('km').value) || 0,
                 flights: parseInt(document.getElementById('flights').value) || 0,
@@ -111,7 +111,8 @@
             };
 
             // Logica Punteggio (normalizzazione 0-100)
-            const d = (vals.diet - 1) * 50; 
+            // (vals.diet + 1) * 50 trasforma il range [-1, 0, 1] in [0, 50, 100]
+            const d = (vals.diet + 1) * 50; 
             const e = 100 - vals.energy; 
             const k = (vals.km / 500) * 100;
             const f = (vals.flights / 10) * 100;
@@ -119,11 +120,9 @@
             
             const total = Math.round((d + e + k + f + c) / 5);
 
-            // Aggiornamento visuale del punteggio
             const scoreNum = document.getElementById('score-num');
             if (scoreNum) {
                 scoreNum.innerText = total;
-                // Feedback cromatico
                 scoreNum.style.color = total > 80 ? "#ff0055" : (total > 40 ? "#ffcc00" : "#00ff66");
             }
         }
@@ -135,57 +134,50 @@
         }
 
         function updateAQI() {
-            // Tenta di ottenere la posizione per simulare l'AQI
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition((pos) => {
                     const mockAQI = Math.floor(Math.random() * (60 - 20) + 20);
                     document.getElementById('aqi-num').innerText = mockAQI;
                 }, () => {
-                    document.getElementById('aqi-num').innerText = "32"; // Valore di default
+                    document.getElementById('aqi-num').innerText = "32";
                 });
             }
         }
 
-        // --- 2. LOGICA WEBSOCKET (Comunicazione Bidirezionale) ---
+        // --- 2. LOGICA WEBSOCKET ---
 
         function connect() {
             ws = new WebSocket(RENDER_URL);
 
-            ws.onopen = () => {
-                console.log('✅ Connesso al server WebSocket');
-            };
+            ws.onopen = () => console.log('✅ Connesso al server WebSocket');
 
             ws.onclose = () => {
-                console.log('❌ Connessione persa. Riconnessione in corso...');
+                console.log('❌ Connessione persa. Riconnessione...');
                 setTimeout(connect, 3000);
             };
 
-            // RICEZIONE: Comandi da TouchDesigner
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
                     const el = document.getElementById(data.id);
                     if (el) {
-                        el.value = data.value; // Sposta lo slider
+                        el.value = data.value;
                         if (data.id === 'km') updateKmLabels(data.value);
-                        updateScore(); // Ricalcola tutto
+                        updateScore();
                     }
                 } catch (e) {
-                    console.error("Errore nella ricezione dati:", e);
+                    console.error("Errore ricezione:", e);
                 }
             };
         }
 
         // --- 3. INIZIALIZZAZIONE ---
 
-        // Listener per gli input manuali degli slider
         document.querySelectorAll('.pixel-slider').forEach(slider => {
             slider.addEventListener('input', (e) => {
-                // 1. Calcola localmente
                 if (e.target.id === 'km') updateKmLabels(e.target.value);
                 updateScore();
 
-                // 2. Invia al server
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     const msg = { 
                         id: e.target.id, 
@@ -196,7 +188,6 @@
             });
         });
 
-        // Avvio all'apertura della pagina
         document.addEventListener('DOMContentLoaded', () => {
             updateAQI();
             updateScore();
