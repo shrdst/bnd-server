@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eco Dashboard - Site Version</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="header">
+        <div class="top-left">
+            <div class="weather">
+                <div class="sun-pixel"></div>
+                <span>24°C</span>
+            </div>
+            <div class="aqi-box">
+                AQI: <span id="aqi-num">32</span>
+                <span class="info-container">
+                    <span class="info-icon">?</span>
+                    <span class="tooltip">Air Quality Index: indica il livello di inquinamento dell'aria locale.</span>
+                </span>
+                <div id="aqi-bar" class="aqi-bar"></div>
+            </div>
+        </div>
+
+        <div class="top-right">
+            <span class="info-container">
+                <span class="info-icon">?</span>
+                <span class="tooltip tooltip-right">Il punteggio è una media tra le tue abitudini e l'indice di inquinamento.</span>
+            </span>
+            <span id="score-num" class="score-value">--</span>
+            <div id="score-diamond" class="diamond"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        
+        <div class="section">
+            <h3>DIETA</h3>
+            <p class="description">Frequenza consumo proteine animali. L'impatto degli allevamenti è massivo.</p>
+            <input type="range" min="-1" max="1" step="any" value="-1" class="pixel-slider" id="diet">
+            <div class="labels">
+                <span>MAI</span>
+                <span class="center">OGNI TANTO</span>
+                <span>SPESSO</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>ABITAZIONE</h3>
+            <p class="description">Percentuale energia da fonti rinnovabili (certificata).</p>
+            <input type="range" min="0" max="100" step="0.01" value="50" class="pixel-slider" id="energy">
+            <div class="labels">
+                <span>0%</span>
+                <span>100%</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>KM SETTIMANALI</h3>
+            <p class="description">Distanza percorsa con mezzi a combustione fossile (auto/moto).</p>
+            <input type="range" min="0" max="500" step="0.01" value="100" class="pixel-slider" id="km">
+            <div class="counter-box">
+                <span id="km-display" class="count">100 KMS</span>
+                <span id="mi-display" class="count-sub">62 MIGLIA</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>VOLI ANNUI</h3>
+            <p class="description">Numero di voli effettuati. I voli sono i pesi maggiori dell'impronta carbonica.</p>
+            <input type="range" min="0" max="10" step="0.01" value="1" class="pixel-slider" id="flights">
+            <div class="labels">
+                <span>ZERO</span>
+                <span>DIECI+</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>CONSUMO</h3>
+            <p class="description">Acquisto di nuovi prodotti rispetto a riparato/usato.</p>
+            <input type="range" min="0" max="10" step="0.01" value="2" class="pixel-slider" id="consumption">
+            <div class="labels">
+                <span>MINIMO</span>
+                <span>MASSIMO</span>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        <p>BASSO SCORE = PIÙ ECO</p>
+    </div>
+
+    <script>
+        const RENDER_URL = 'wss://bnd-server.onrender.com'; 
+        let ws = null;
+
+        // --- 1. FUNZIONI DI CALCOLO E UI ---
+        
+        function updateScore() {
+            // 1. LETTURA INPUT (usiamo parseFloat per leggere i decimali)
+            // Valori grezzi dall'interfaccia
+            const rawDiet = parseFloat(document.getElementById('diet').value) || 0; 
+            const rawEnergy = parseFloat(document.getElementById('energy').value) || 0;
+            const rawKm = parseFloat(document.getElementById('km').value) || 0;
+            const rawFlights = parseFloat(document.getElementById('flights').value) || 0;
+            const rawCons = parseFloat(document.getElementById('consumption').value) || 0;
+
+            // 2. NORMALIZZAZIONE (Calcoli per portare i valori a 0-1 o -1-1 come richiesto)
+            
+            // Diet: resta -1 a 1
+            const valDiet = rawDiet; 
+            
+            // Energy: da 0-100 diventa 0-1 (es. 50 -> 0.5)
+            const valEnergy = rawEnergy / 100; 
+            
+            // Km: da 0-500 diventa 0-1 (es. 250 -> 0.5)
+            const valKm = rawKm / 500;
+            
+            // Flights: da 0-10 diventa 0-1 (es. 5 -> 0.5)
+            const valFlights = rawFlights / 10;
+            
+            // Consumo: da 0-10 diventa 0-1 (es. 2 -> 0.2)
+            const valCons = rawCons / 10;
+
+
+            // 3. CALCOLO PUNTEGGIO (Adattato ai nuovi valori normalizzati)
+            // Convertiamo tutto in "punti penalità" su base 100 per fare la media
+            
+            // Diet (-1=bene, 1=male) -> trasformiamo in 0-100
+            const scoreD = (valDiet + 1) * 50; 
+            
+            // Energy (1=bene, 0=male) -> invertiamo perché 100% energia rinnovabile = 0 penalità
+            const scoreE = (1 - valEnergy) * 100; 
+            
+            // Km (0=bene, 1=male) -> trasformiamo in 0-100
+            const scoreK = valKm * 100;
+            
+            // Flights (0=bene, 1=male) -> trasformiamo in 0-100
+            const scoreF = valFlights * 100;
+            
+            // Consumo (0=bene, 1=male) -> trasformiamo in 0-100
+            const scoreC = valCons * 100;
+            
+            // Media
+            const total = Math.round((scoreD + scoreE + scoreK + scoreF + scoreC) / 5);
+
+            const scoreNum = document.getElementById('score-num');
+            if (scoreNum) {
+                scoreNum.innerText = total;
+                scoreNum.style.color = total > 80 ? "#ff0055" : (total > 40 ? "#ffcc00" : "#00ff66");
+            }
+        }
+
+        function updateKmLabels(val) {
+            const km = parseFloat(val);
+            // Arrotondiamo per la visualizzazione all'utente per non sporcare l'interfaccia pixel
+            document.getElementById('km-display').innerText = `${Math.round(km)} KMS`;
+            document.getElementById('mi-display').innerText = `${Math.round(km * 0.621371)} MIGLIA`;
+        }
+
+        function updateAQI() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    const mockAQI = Math.floor(Math.random() * (60 - 20) + 20);
+                    document.getElementById('aqi-num').innerText = mockAQI;
+                }, () => {
+                    document.getElementById('aqi-num').innerText = "32";
+                });
+            }
+        }
+
+        // --- 2. LOGICA WEBSOCKET ---
+
+        function connect() {
+            ws = new WebSocket(RENDER_URL);
+
+            ws.onopen = () => console.log('✅ Connesso al server WebSocket');
+
+            ws.onclose = () => {
+                console.log('❌ Connessione persa. Riconnessione...');
+                setTimeout(connect, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    const el = document.getElementById(data.id);
+                    if (el) {
+                        el.value = data.value; // Riceve il float preciso dal server
+                        if (data.id === 'km') updateKmLabels(data.value);
+                        updateScore();
+                    }
+                } catch (e) {
+                    console.error("Errore ricezione:", e);
+                }
+            };
+        }
+
+        // --- 3. INIZIALIZZAZIONE ---
+
+        document.querySelectorAll('.pixel-slider').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                
+                if (e.target.id === 'km') updateKmLabels(val);
+                updateScore();
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const msg = { 
+                        id: e.target.id, 
+                        value: val // Invia il numero decimale preciso
+                    };
+                    ws.send(JSON.stringify(msg));
+                }
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateAQI();
+            updateScore();
+            connect();
+        });
+    </script>
+</body>
+</html>
