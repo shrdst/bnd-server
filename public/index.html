@@ -97,56 +97,35 @@
     <script>
         const RENDER_URL = 'wss://bnd-server.onrender.com'; 
         let ws = null;
+        let isDragging = false; // Flag per evitare il conflitto sito-server
 
         // --- 1. FUNZIONI DI CALCOLO E UI ---
         
         function updateScore() {
-            // 1. LETTURA INPUT (usiamo parseFloat per leggere i decimali)
-            // Valori grezzi dall'interfaccia
+            // Lettura valori con decimali
             const rawDiet = parseFloat(document.getElementById('diet').value) || 0; 
             const rawEnergy = parseFloat(document.getElementById('energy').value) || 0;
             const rawKm = parseFloat(document.getElementById('km').value) || 0;
             const rawFlights = parseFloat(document.getElementById('flights').value) || 0;
             const rawCons = parseFloat(document.getElementById('consumption').value) || 0;
 
-            // 2. NORMALIZZAZIONE (Calcoli per portare i valori a 0-1 o -1-1 come richiesto)
-            
-            // Diet: resta -1 a 1
-            const valDiet = rawDiet; 
-            
-            // Energy: da 0-100 diventa 0-1 (es. 50 -> 0.5)
-            const valEnergy = rawEnergy / 100; 
-            
-            // Km: da 0-500 diventa 0-1 (es. 250 -> 0.5)
-            const valKm = rawKm / 500;
-            
-            // Flights: da 0-10 diventa 0-1 (es. 5 -> 0.5)
-            const valFlights = rawFlights / 10;
-            
-            // Consumo: da 0-10 diventa 0-1 (es. 2 -> 0.2)
-            const valCons = rawCons / 10;
+            // Normalizzazione logica (0-1 o -1-1) per i calcoli interni
+            const vals = {
+                diet: rawDiet,               // Resta -1 a 1
+                energy: rawEnergy / 100,     // Diventa 0 a 1
+                km: rawKm / 500,             // Diventa 0 a 1
+                flights: rawFlights / 10,    // Diventa 0 a 1
+                cons: rawCons / 10           // Diventa 0 a 1
+            };
 
-
-            // 3. CALCOLO PUNTEGGIO (Adattato ai nuovi valori normalizzati)
-            // Convertiamo tutto in "punti penalità" su base 100 per fare la media
+            // Calcolo Score (trasformazione in penalità 0-100)
+            const d = (vals.diet + 1) * 50; 
+            const e = (1 - vals.energy) * 100; 
+            const k = vals.km * 100;
+            const f = vals.flights * 100;
+            const c = vals.cons * 100;
             
-            // Diet (-1=bene, 1=male) -> trasformiamo in 0-100
-            const scoreD = (valDiet + 1) * 50; 
-            
-            // Energy (1=bene, 0=male) -> invertiamo perché 100% energia rinnovabile = 0 penalità
-            const scoreE = (1 - valEnergy) * 100; 
-            
-            // Km (0=bene, 1=male) -> trasformiamo in 0-100
-            const scoreK = valKm * 100;
-            
-            // Flights (0=bene, 1=male) -> trasformiamo in 0-100
-            const scoreF = valFlights * 100;
-            
-            // Consumo (0=bene, 1=male) -> trasformiamo in 0-100
-            const scoreC = valCons * 100;
-            
-            // Media
-            const total = Math.round((scoreD + scoreE + scoreK + scoreF + scoreC) / 5);
+            const total = Math.round((d + e + k + f + c) / 5);
 
             const scoreNum = document.getElementById('score-num');
             if (scoreNum) {
@@ -157,7 +136,7 @@
 
         function updateKmLabels(val) {
             const km = parseFloat(val);
-            // Arrotondiamo per la visualizzazione all'utente per non sporcare l'interfaccia pixel
+            // Arrotondiamo solo per la visualizzazione all'utente
             document.getElementById('km-display').innerText = `${Math.round(km)} KMS`;
             document.getElementById('mi-display').innerText = `${Math.round(km * 0.621371)} MIGLIA`;
         }
@@ -188,11 +167,16 @@
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    const el = document.getElementById(data.id);
-                    if (el) {
-                        el.value = data.value; // Riceve il float preciso dal server
-                        if (data.id === 'km') updateKmLabels(data.value);
-                        updateScore();
+                    
+                    // SE L'UTENTE STA TRASCINANDO, IGNORA I MESSAGGI DEL SERVER
+                    // Questo previene che lo slider "salti" o torni indietro mentre lo muovi
+                    if (!isDragging) {
+                        const el = document.getElementById(data.id);
+                        if (el) {
+                            el.value = data.value; 
+                            if (data.id === 'km') updateKmLabels(data.value);
+                            updateScore();
+                        }
                     }
                 } catch (e) {
                     console.error("Errore ricezione:", e);
@@ -200,9 +184,19 @@
             };
         }
 
-        // --- 3. INIZIALIZZAZIONE ---
+        // --- 3. INIZIALIZZAZIONE E EVENTI ---
 
         document.querySelectorAll('.pixel-slider').forEach(slider => {
+            
+            // Rileva inizio trascinamento (Mouse o Touch)
+            slider.addEventListener('mousedown', () => { isDragging = true; });
+            slider.addEventListener('touchstart', () => { isDragging = true; }, {passive: true});
+
+            // Rileva fine trascinamento
+            slider.addEventListener('mouseup', () => { isDragging = false; });
+            slider.addEventListener('touchend', () => { isDragging = false; });
+
+            // Gestione movimento slider
             slider.addEventListener('input', (e) => {
                 const val = parseFloat(e.target.value);
                 
@@ -212,7 +206,7 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     const msg = { 
                         id: e.target.id, 
-                        value: val // Invia il numero decimale preciso
+                        value: val // Invia il decimale preciso
                     };
                     ws.send(JSON.stringify(msg));
                 }
