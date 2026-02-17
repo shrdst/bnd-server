@@ -99,44 +99,44 @@
         let ws = null;
         let isDragging = false; 
 
-        // --- FUNZIONE DI SUPPORTO PER L'INVERSIONE ---
-        // Converte UI (0-100) -> Tecnico (1-0)
-        function getEnergyTechValue(uiValue) {
+        // --- FUNZIONI DI INVERSIONE ---
+        
+        // Da UI (0-100) a Server (1-0)
+        // Se UI è 0%   -> 1 - 0 = 1
+        // Se UI è 100% -> 1 - 1 = 0
+        function toTechValue(uiValue) {
             return 1 - (uiValue / 100);
         }
 
-        // Converte Tecnico (1-0) -> UI (0-100)
-        function getEnergyUIValue(techValue) {
+        // Da Server (1-0) a UI (0-100)
+        // Se Server è 1 -> (1 - 1) * 100 = 0%
+        // Se Server è 0 -> (1 - 0) * 100 = 100%
+        function toUiValue(techValue) {
             return (1 - techValue) * 100;
         }
 
         // --- 1. FUNZIONI DI CALCOLO E UI ---
         
         function updateScore() {
-            // Lettura valori UI
             const rawDiet = parseFloat(document.getElementById('diet').value) || 0; 
-            const rawEnergyUI = parseFloat(document.getElementById('energy').value) || 0; // 0-100
+            const rawEnergyUI = parseFloat(document.getElementById('energy').value) || 0; 
             const rawKm = parseFloat(document.getElementById('km').value) || 0;
             const rawFlights = parseFloat(document.getElementById('flights').value) || 0;
             const rawCons = parseFloat(document.getElementById('consumption').value) || 0;
 
-            // Normalizzazione logica per il punteggio
+            // Normalizzazione: portiamo tutto a "impatto" (0 = bene, 1 = male)
             const vals = {
                 diet: rawDiet, 
-                // Qui applichiamo l'inversione: 0% UI = 1.0 (Male), 100% UI = 0.0 (Bene)
-                energy: getEnergyTechValue(rawEnergyUI), 
+                // Energy: 0% UI = 1.0 Impatto (Male). 100% UI = 0.0 Impatto (Bene)
+                energy: toTechValue(rawEnergyUI), 
                 km: rawKm / 500,           
                 flights: rawFlights / 10,  
                 cons: rawCons / 10         
             };
 
-            // Calcolo Punteggio (Tutto basato su penalità 0-100)
+            // Calcolo penalità (0 = Eco, 100 = Inquinante)
             const d = (vals.diet + 1) * 50; 
-            
-            // Energy: vals.energy è già invertito (1=Male, 0=Bene). 
-            // Quindi per avere una penalità 0-100 basta moltiplicare per 100.
-            const e = vals.energy * 100; 
-            
+            const e = vals.energy * 100; // Se vals.energy è 1 (0% UI), penalità è 100. Corretto.
             const k = vals.km * 100;
             const f = vals.flights * 100;
             const c = vals.cons * 100;
@@ -187,11 +187,10 @@
                         const el = document.getElementById(data.id);
                         if (el) {
                             if (data.id === 'energy') {
-                                // Se arriva 'energy', il server manda 0-1 invertito. 
-                                // Noi dobbiamo riconvertirlo in 0-100 per l'interfaccia.
-                                el.value = getEnergyUIValue(data.value);
+                                // Il server manda 1? Noi mostriamo 0.
+                                // Il server manda 0? Noi mostriamo 100.
+                                el.value = toUiValue(data.value);
                             } else {
-                                // Per gli altri slider il valore è diretto
                                 el.value = data.value; 
                             }
 
@@ -223,9 +222,10 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     let valToSend = uiVal;
 
-                    // Logica specifica per l'invio dati di ENERGY
                     if (e.target.id === 'energy') {
-                        valToSend = getEnergyTechValue(uiVal); // Invia 1-0 invece di 0-100
+                        // Utente mette 0%? Inviamo 1.
+                        // Utente mette 100%? Inviamo 0.
+                        valToSend = toTechValue(uiVal); 
                     }
 
                     const msg = { 
