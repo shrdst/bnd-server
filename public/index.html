@@ -99,47 +99,30 @@
         let ws = null;
         let isDragging = false; 
 
-        // --- FUNZIONI DI INVERSIONE ---
-        
-        // Da UI (0-100) a Server (1-0)
-        // Se UI è 0%   -> 1 - 0 = 1
-        // Se UI è 100% -> 1 - 1 = 0
-        function toTechValue(uiValue) {
-            return 1 - (uiValue / 100);
-        }
-
-        // Da Server (1-0) a UI (0-100)
-        // Se Server è 1 -> (1 - 1) * 100 = 0%
-        // Se Server è 0 -> (1 - 0) * 100 = 100%
-        function toUiValue(techValue) {
-            return (1 - techValue) * 100;
-        }
-
-        // --- 1. FUNZIONI DI CALCOLO E UI ---
+        // --- 1. FUNZIONI DI CALCOLO E SCORE ---
+        // Questa funzione serve solo per l'aggiornamento visivo locale dello Score
         
         function updateScore() {
-            const rawDiet = parseFloat(document.getElementById('diet').value) || 0; 
-            const rawEnergyUI = parseFloat(document.getElementById('energy').value) || 0; 
-            const rawKm = parseFloat(document.getElementById('km').value) || 0;
-            const rawFlights = parseFloat(document.getElementById('flights').value) || 0;
-            const rawCons = parseFloat(document.getElementById('consumption').value) || 0;
+            // Lettura valori UI (Raw)
+            const uiDiet = parseFloat(document.getElementById('diet').value) || 0; 
+            const uiEnergy = parseFloat(document.getElementById('energy').value) || 0; 
+            const uiKm = parseFloat(document.getElementById('km').value) || 0;
+            const uiFlights = parseFloat(document.getElementById('flights').value) || 0;
+            const uiCons = parseFloat(document.getElementById('consumption').value) || 0;
 
-            // Normalizzazione: portiamo tutto a "impatto" (0 = bene, 1 = male)
-            const vals = {
-                diet: rawDiet, 
-                // Energy: 0% UI = 1.0 Impatto (Male). 100% UI = 0.0 Impatto (Bene)
-                energy: toTechValue(rawEnergyUI), 
-                km: rawKm / 500,           
-                flights: rawFlights / 10,  
-                cons: rawCons / 10         
-            };
+            // Normalizzazione in "Fattore di Impatto" (0 = Bene, 1 = Male)
+            // Diet: da -1 a 1 -> normalizzato poi nel calcolo
+            const impactEnergy = 1 - (uiEnergy / 100); // 100% Rinnovabile = 0 Impatto
+            const impactKm = uiKm / 500;               // 500km = 1 Impatto
+            const impactFlights = uiFlights / 10;      // 10 voli = 1 Impatto
+            const impactCons = uiCons / 10;            // 10 consumo = 1 Impatto
 
-            // Calcolo penalità (0 = Eco, 100 = Inquinante)
-            const d = (vals.diet + 1) * 50; 
-            const e = vals.energy * 100; // Se vals.energy è 1 (0% UI), penalità è 100. Corretto.
-            const k = vals.km * 100;
-            const f = vals.flights * 100;
-            const c = vals.cons * 100;
+            // Calcolo Score (0-100)
+            const d = (uiDiet + 1) * 50;         // -1->0, 1->100
+            const e = impactEnergy * 100; 
+            const k = impactKm * 100;
+            const f = impactFlights * 100;
+            const c = impactCons * 100;
             
             const total = Math.round((d + e + k + f + c) / 5);
 
@@ -167,7 +150,8 @@
             }
         }
 
-        // --- 2. LOGICA WEBSOCKET ---
+        // --- 2. LOGICA WEBSOCKET (SCAMBIO DATI) ---
+        // Qui gestiamo le conversioni per mandare/ricevere i dati corretti da TD
 
         function connect() {
             ws = new WebSocket(RENDER_URL);
@@ -186,15 +170,26 @@
                     if (!isDragging) {
                         const el = document.getElementById(data.id);
                         if (el) {
-                            if (data.id === 'energy') {
-                                // Il server manda 1? Noi mostriamo 0.
-                                // Il server manda 0? Noi mostriamo 100.
-                                el.value = toUiValue(data.value);
-                            } else {
-                                el.value = data.value; 
-                            }
+                            let valDisplay = data.value;
 
-                            if (data.id === 'km') updateKmLabels(data.value);
+                            // RICEZIONE: Da Server (0-1) a Interfaccia (0-100, 0-500)
+                            if (data.id === 'energy') {
+                                // Server manda 1 (Male) -> UI mostra 0%
+                                valDisplay = (1 - data.value) * 100; 
+                            } 
+                            else if (data.id === 'km') {
+                                // Server manda 1 -> UI mostra 500
+                                valDisplay = data.value * 500;
+                            }
+                            else if (data.id === 'flights' || data.id === 'consumption') {
+                                // Server manda 1 -> UI mostra 10
+                                valDisplay = data.value * 10;
+                            }
+                            // Diet rimane uguale (-1 a 1)
+
+                            el.value = valDisplay; 
+
+                            if (data.id === 'km') updateKmLabels(valDisplay);
                             updateScore();
                         }
                     }
@@ -222,11 +217,20 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     let valToSend = uiVal;
 
+                    // INVIO: Da Interfaccia a Server (0-1)
                     if (e.target.id === 'energy') {
-                        // Utente mette 0%? Inviamo 1.
-                        // Utente mette 100%? Inviamo 0.
-                        valToSend = toTechValue(uiVal); 
+                        // UI 0% -> Server 1 (Male)
+                        valToSend = 1 - (uiVal / 100);
                     }
+                    else if (e.target.id === 'km') {
+                        // UI 500 -> Server 1
+                        valToSend = uiVal / 500;
+                    }
+                    else if (e.target.id === 'flights' || e.target.id === 'consumption') {
+                        // UI 10 -> Server 1
+                        valToSend = uiVal / 10;
+                    }
+                    // Diet rimane uguale (-1 a 1)
 
                     const msg = { 
                         id: e.target.id, 
